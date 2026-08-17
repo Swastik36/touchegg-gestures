@@ -14,9 +14,20 @@ Windows-style 3-finger gestures via **Touchégg** + Cinnamon:
 ```bash
 sudo apt install touchegg
 sudo systemctl disable --now touchegg      # stop the root daemon — it ignores user config
+sudo usermod -a -G input "$USER"           # grant access to /dev/input/event* (needs re-login)
 mkdir -p ~/.config/touchegg
 cp touchegg.conf ~/.config/touchegg/touchegg.conf
 ```
+
+> **Why the `input` group is required (found the hard way):**
+> Input devices are owned by `root:input` with mode `crw-rw----`, so a
+> user-level daemon cannot open them without group membership. The **root
+> systemd daemon** can read devices but runs with a different config path
+> (`/root/.config/...`), so it silently ignores your user config — gestures
+> either do nothing or run stale settings. The correct setup is: **user-level
+> daemon + `input` group**. The group change takes effect on next login.
+> To test without re-logging in, start the daemon with the group applied:
+> `sg input -c 'nohup /usr/bin/touchegg --daemon >/dev/null 2>&1 &'`
 
 **Touchégg is a two-process system** — both must run (daemon gathers gestures,
 client executes actions from the config):
@@ -55,6 +66,12 @@ NoDisplay=false
 
 - **Nothing happens** → verify both processes: `pgrep -a -x touchegg` (two lines:
   daemon + client). If the root daemon is running, `sudo systemctl disable --now touchegg`.
+- **Daemon logs `Error opening device /dev/input/eventX`** (run with `--debug`) →
+  the daemon cannot read your touchpad. You are missing the `input` group:
+  `sudo usermod -a -G input "$USER"`, then re-login (or start via
+  `sg input -c '...'` for an immediate test). Seen on a clean IdeaPad Slim 3
+  install: root daemon opened devices but ignored the user config, and the
+  user daemon couldn't open devices at all — both symptoms point here.
 - **"Ignoring this gesture… action not supported"** in the client log
   (run client with `--debug`) → wrong action type in the config. Touchégg v2
   uses `RUN_COMMAND` (not `EXECUTE`) with a `<command>` parameter.
